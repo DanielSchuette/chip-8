@@ -37,4 +37,4 @@ leaks: $(BIN)
 	valgrind -s --leak-check=full --show-leak-kinds=all ./$<
 
 clean:
-	rm -f *.o *.d $(BIN)
+	rm -f *.o *.d $(BIN) tags

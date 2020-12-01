@@ -1,0 +1,5 @@
+*.o
+*.d
+chip8
+assets/
+roms/
