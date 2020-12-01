@@ -18,13 +18,13 @@
 
 #define _DEBUG              1
 #define _ENABLE_SUPER_CHIP8 1
+#define NOT_IMPLEMENTED(msg) { fprintf(stderr, "%s\n", msg); SDL_Delay(2); }
 
 static const char*                progname;
 static std::random_device         rnd_dev;
 static std::default_random_engine rnd_gen(rnd_dev());
 
-static constexpr uint32_t target_fps   = 60; // Chip-8 runs at 60 FPS
-static constexpr uint32_t ms_per_frame = 1000 / target_fps;
+static constexpr uint8_t sound_hz      = 60;
 
 void warn(const char*, ...);
 [[noreturn]] void error(const char*, ...);
@@ -45,11 +45,13 @@ void pr_bits(T word)
 }
 
 class Chip8 {
-    static constexpr uint16_t mem_size       = 0x1000;
-    static constexpr uint16_t stack_size     = 0x10;
-    static constexpr uint16_t program_start  = 0x200;
-    static constexpr uint16_t display_width  = 0x40; // or 0x80 pixels
-    static constexpr uint16_t display_height = 0x20; // or 0x40 pixels
+    static constexpr uint16_t mem_size           = 0x1000;
+    static constexpr uint16_t stack_size         = 0x10;
+    static constexpr uint16_t program_start      = 0x200;
+    static constexpr uint16_t display_width      = 0x40; // or 0x80 pixels
+    static constexpr uint16_t display_height     = 0x20; // or 0x40 pixels
+    static constexpr uint16_t num_display_pixels = display_width *
+                                                   display_height;
 
     /* There are 16 8-bit registers (v0 through vf) and 1 16-bit register (I),
      * which is usually used to store 12-bit memory addresses.
@@ -59,7 +61,8 @@ class Chip8 {
 
     // special purpose registers, decremented at 60Hz if non-zero
     uint8_t delay_timer_reg = 0;
-    uint8_t sound_timer_reg = 0; // machine plays a sound if non-zero
+    uint8_t sound_timer_reg = 0;  // machine plays a sound if non-zero
+    uint8_t timer_frequency = 60; // in Hz
 
     /* Keyboard state is kept in an array and updated every frame. `true'
      * indicates that a key is pressed, `false' that it isnt'.
@@ -124,7 +127,10 @@ class Chip8 {
      */
     uint8_t display[display_width*display_height] = {};
 
-    bool halted = true;
+    bool           halted;
+    int8_t         waiting_for_key = -1;
+    uint32_t       instr_delay     = 2; // ms delay after every instruction
+    const uint32_t max_instr_delay = 500;
 
     // SDL attributes
     SDL_Window*   window         = nullptr;
@@ -155,7 +161,9 @@ class Chip8 {
     void     update_keyboard(void);
     void     swap_display(void);
 
-    bool is_key_pressed(uint8_t) const;
+    bool    is_key_pressed(uint8_t) const;
+    bool    any_key_pressed(void) const;
+    uint8_t first_key_pressed(void) const;
 
     // Chip-8 instructions
     void cls(uint8_t);
@@ -172,6 +180,8 @@ class Chip8 {
     void ld(uint8_t, uint8_t);
     void ld_reg(uint8_t, uint8_t);
     void ld_dt(uint8_t);
+    void ld_wait_key(uint8_t);
+    void ld_recv_key(void);
     void add(uint8_t, uint8_t);
     void or_reg(uint8_t, uint8_t);
     void and_reg(uint8_t, uint8_t);
@@ -214,7 +224,7 @@ public:
         } registers;
     };
 
-    Chip8(void);
+    Chip8(bool);
     ~Chip8(void);
 
     Chip8(const Chip8&) = delete;
@@ -226,6 +236,8 @@ public:
     void run_single_instr(bool = true);
     void load_program_to_mem(const char*);
     void toggle_visibility(void);
+    void incr_clock_speed(void);
+    void decr_clock_speed(void);
     void dump_mem(void) const;
     void dump_stack(void) const;
     void dump_regs(void) const;
@@ -234,12 +246,12 @@ public:
     void dump_properties(void) const;
     void dump_all(void) const;
 
-    bool is_halted(void) const { return halted; }
-    void halt(void)            { warn("halting the machine"); halted = true; }
-    void enter_run_state(void) { warn("resume running"); halted = false; }
+    bool is_halted(void) const  { return halted; }
+    void halt(void)             { warn("halting the machine"); halted = true; }
+    void enter_run_state(void)  { warn("resume running"); halted = false; }
 };
 
-Chip8::Chip8(void)
+Chip8::Chip8(bool initially_halted) : halted(initially_halted)
 {
     if (SDL_Init(SDL_INIT_EVERYTHING) != 0) error(SDL_GetError());
     if (TTF_Init() != 0)                    error(TTF_GetError());
@@ -255,10 +267,12 @@ Chip8::Chip8(void)
                               win_height, SDL_WINDOW_SHOWN);
     if (!window) error(SDL_GetError());
 
-    /* Enabling vsync should limit the framerate to whatever the video card is
-     * capable of. We still limit the framerate in the main loop.
+    /* Enabling vsync (`SDL_RENDERER_PRESENTVSYNC') should limit the framerate
+     * to whatever the video card is capable of. This doesn't work too well for
+     * Chip-8, though. The game itself should either limit the framerate or
+     * allow for adjusting the cpu speed.
      */
-    uint32_t render_flags = SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC;
+    uint32_t render_flags = SDL_RENDERER_ACCELERATED;
     renderer = SDL_CreateRenderer(window, -1, render_flags);
     if (!renderer) error(SDL_GetError());
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -286,19 +300,20 @@ void Chip8::run(void)
     while (true) run_single_instr();
 }
 
-/* Run a single Chip-8 instruction. In here, we delay the display of the current
- * frame so that we reach Chip-8's target framerate.
+/* Run a single Chip-8 instruction. In here, we delay the next instruction by
+ * a constant amount of milliseconds which is adjustable.
  */
 void Chip8::run_single_instr(bool skip_if_halted)
 {
-    if (is_halted() && skip_if_halted) {
-        SDL_Delay(ms_per_frame);
+    if (is_halted() && skip_if_halted) return;
+
+    // update status registers and act on a 0xfx0a instruction
+    update_timers();
+    update_keyboard();
+    if (waiting_for_key >= 0) {
+        SDL_Delay(instr_delay);
         return;
     }
-
-    uint32_t start_time = SDL_GetTicks();
-    update_keyboard();
-    update_timers();
 
     // fetch an instruction from memory (aligned at 2-byte boundaries)
     assert((pc & 0x1) == 0x0);
@@ -366,21 +381,20 @@ void Chip8::run_single_instr(bool skip_if_halted)
         break;
     case 0xf:
         switch (lower_byte) {
-        case 0x07: ld_dt(reg); break;
-        case 0x0a: /* TODO */ break;
-        case 0x15: /* TODO */ break;
-        case 0x18: /* TODO */ break;
-        case 0x1e: /* TODO */ break;
-        case 0x29: /* TODO */ break;
-        case 0x33: /* TODO */ break;
-        case 0x55: /* TODO */ break;
-        case 0x65: /* TODO */ break;
+        case 0x07: ld_dt(reg);       break;
+        case 0x0a: ld_wait_key(reg); break;
+        case 0x15: NOT_IMPLEMENTED("instr not implemented"); break;
+        case 0x18: NOT_IMPLEMENTED("instr not implemented"); break;
+        case 0x1e: NOT_IMPLEMENTED("instr not implemented"); break;
+        case 0x29: NOT_IMPLEMENTED("instr not implemented"); break;
+        case 0x33: NOT_IMPLEMENTED("instr not implemented"); break;
+        case 0x55: NOT_IMPLEMENTED("instr not implemented"); break;
+        case 0x65: NOT_IMPLEMENTED("instr not implemented"); break;
         default:   unknown_instr_error(instr);
         }
         break;
     default:  unknown_instr_error(instr);
     }
-    swap_display();
 
     // going beyond memory and an endless loop halt the machine
     if (pc == prev_pc || pc >= mem_size) {
@@ -388,10 +402,7 @@ void Chip8::run_single_instr(bool skip_if_halted)
         halt();
     }
     prev_pc = pc;
-
-    uint32_t delta = SDL_GetTicks() - start_time;
-    if (delta < ms_per_frame)
-        SDL_Delay(ms_per_frame - delta);
+    SDL_Delay(instr_delay);
 }
 
 void Chip8::load_program_to_mem(const char* path)
@@ -418,15 +429,18 @@ void Chip8::load_program_to_mem(const char* path)
     src_code.close();
 }
 
-// IMPROVE: Play music instead, pause if necessary.
+// IMPROVE: Play music instead of a music chunk, pause if necessary.
 void Chip8::update_timers(void)
 {
-    if (delay_timer_reg > 0)
-        delay_timer_reg--;
-
-    if (sound_timer_reg > 0) {
-        sound_timer_reg--;
-        Mix_PlayChannelTimed(-1, beep_sound, 0, ms_per_frame);
+    static uint32_t last_timer_ticks = SDL_GetTicks();
+    uint32_t current_ticks = SDL_GetTicks();
+    if ((current_ticks - last_timer_ticks) >= (1000 / timer_frequency)) {
+        last_timer_ticks = current_ticks;
+        if (delay_timer_reg > 0) delay_timer_reg--;
+        if (sound_timer_reg > 0) {
+            sound_timer_reg--;
+            Mix_PlayChannelTimed(-1, beep_sound, 0, 1000 / sound_hz);
+        }
     }
 }
 
@@ -436,24 +450,27 @@ void Chip8::update_timers(void)
 void Chip8::update_keyboard(void)
 {
     SDL_PumpEvents();
-    const uint8_t* state = SDL_GetKeyboardState(NULL);
+    const uint8_t* state   = SDL_GetKeyboardState(NULL);
+    bool           pressed = false;
 
-    keyboard[0x0] = state[SDL_SCANCODE_0] ? true : false;
-    keyboard[0x1] = state[SDL_SCANCODE_1] ? true : false;
-    keyboard[0x2] = state[SDL_SCANCODE_2] ? true : false;
-    keyboard[0x3] = state[SDL_SCANCODE_3] ? true : false;
-    keyboard[0x4] = state[SDL_SCANCODE_4] ? true : false;
-    keyboard[0x5] = state[SDL_SCANCODE_5] ? true : false;
-    keyboard[0x6] = state[SDL_SCANCODE_6] ? true : false;
-    keyboard[0x7] = state[SDL_SCANCODE_7] ? true : false;
-    keyboard[0x8] = state[SDL_SCANCODE_8] ? true : false;
-    keyboard[0x9] = state[SDL_SCANCODE_9] ? true : false;
-    keyboard[0xa] = state[SDL_SCANCODE_A] ? true : false;
-    keyboard[0xb] = state[SDL_SCANCODE_B] ? true : false;
-    keyboard[0xc] = state[SDL_SCANCODE_C] ? true : false;
-    keyboard[0xd] = state[SDL_SCANCODE_D] ? true : false;
-    keyboard[0xe] = state[SDL_SCANCODE_E] ? true : false;
-    keyboard[0xf] = state[SDL_SCANCODE_F] ? true : false;
+    keyboard[0x0] = state[SDL_SCANCODE_0] ? (pressed = true) : false;
+    keyboard[0x1] = state[SDL_SCANCODE_1] ? (pressed = true) : false;
+    keyboard[0x2] = state[SDL_SCANCODE_2] ? (pressed = true) : false;
+    keyboard[0x3] = state[SDL_SCANCODE_3] ? (pressed = true) : false;
+    keyboard[0x4] = state[SDL_SCANCODE_4] ? (pressed = true) : false;
+    keyboard[0x5] = state[SDL_SCANCODE_5] ? (pressed = true) : false;
+    keyboard[0x6] = state[SDL_SCANCODE_6] ? (pressed = true) : false;
+    keyboard[0x7] = state[SDL_SCANCODE_7] ? (pressed = true) : false;
+    keyboard[0x8] = state[SDL_SCANCODE_8] ? (pressed = true) : false;
+    keyboard[0x9] = state[SDL_SCANCODE_9] ? (pressed = true) : false;
+    keyboard[0xa] = state[SDL_SCANCODE_A] ? (pressed = true) : false;
+    keyboard[0xb] = state[SDL_SCANCODE_B] ? (pressed = true) : false;
+    keyboard[0xc] = state[SDL_SCANCODE_C] ? (pressed = true) : false;
+    keyboard[0xd] = state[SDL_SCANCODE_D] ? (pressed = true) : false;
+    keyboard[0xe] = state[SDL_SCANCODE_E] ? (pressed = true) : false;
+    keyboard[0xf] = state[SDL_SCANCODE_F] ? (pressed = true) : false;
+
+    if (pressed && waiting_for_key >= 0) ld_recv_key();
 }
 
 void Chip8::swap_display(void)
@@ -558,6 +575,27 @@ void Chip8::ld_dt(uint8_t reg)
     store_to_reg_savely(reg, get_delay_timer());
 }
 
+/* This instruction is a bit more complicated, we need to functions for it.
+ * First, we save the register into which we have to load the key that was
+ * pressed. Then, we check if we're waiting on every keyboard update. If we
+ * are indeed waiting _and_ a key was pressed, we call `ld_recv_key()', save
+ * the key to the correct register and reset `waiting_for_key'. See
+ * `update_keyboard()', too.
+ */
+void Chip8::ld_wait_key(uint8_t reg)
+{
+    waiting_for_key = reg;
+}
+
+void Chip8::ld_recv_key(void)
+{
+    uint8_t reg = static_cast<uint8_t>(waiting_for_key);
+    uint8_t key = first_key_pressed();
+    fprintf(stderr, "reg=%d key=%d\n", reg, key);
+    store_to_reg_savely(reg, key);
+    waiting_for_key = -1;
+}
+
 void Chip8::add(uint8_t reg, uint8_t val)
 {
     // we practically implement a load store architecture
@@ -649,6 +687,7 @@ void Chip8::rnd(uint8_t reg, uint8_t byte)
     store_to_reg_savely(reg, rnd & byte);
 }
 
+// We only swap the display after a draw call.
 void Chip8::drw(uint8_t reg1, uint8_t reg2, uint8_t n)
 {
     // NOTE: sprites are _always_ 8 pixels wide
@@ -661,6 +700,7 @@ void Chip8::drw(uint8_t reg1, uint8_t reg2, uint8_t n)
         erased |= copy_byte_to_display(x_pos, y_pos++, byte);
     }
     store_to_reg(0xf, erased);
+    swap_display();
 }
 
 /* Here, we handle wrapping of off-screen coordinates. It isn't totally clear
@@ -673,11 +713,14 @@ uint8_t Chip8::copy_byte_to_display(uint8_t x, uint8_t y, uint8_t byte)
     uint8_t erased = 0x0;
     for (int i = 0; i < 8; i++) {
         uint16_t pos;
-        if (x + i >= display_width)
-            pos = (y - 1) * display_width + ((x + i) % display_width);
-        else
+        if (x + i >= display_width) {
+            uint8_t _y = y == 0 ? 0 : (y - 1);
+            pos = _y * display_width + ((x + i) % display_width);
+        } else {
             pos = y * display_width + x + i;
+        }
 
+        assert(pos < num_display_pixels);
         uint8_t prev_pixel = display[pos];
         display[pos] ^= (byte >> (7 - i)) & 0x1;
         if (display[pos] == 0x0 && prev_pixel != 0x0)
@@ -688,7 +731,7 @@ uint8_t Chip8::copy_byte_to_display(uint8_t x, uint8_t y, uint8_t byte)
 
 void Chip8::sc_exit(void)
 {
-#if _ENABLE_SUPER_CHIP8
+#if defined(_ENABLE_SUPER_CHIP8) && _ENABLE_SUPER_CHIP8 == 1
     exit(0);
 #endif
 }
@@ -830,19 +873,22 @@ void Chip8::dump_keyboard(void) const
 
 void Chip8::dump_properties(void) const
 {
-    fprintf(stderr, "Chip-8 Properties:\n");
+    fprintf(stderr, "VM Properties:\n");
     fprintf(stderr, "display width: 0x%x\n", display_width);
     fprintf(stderr, "display height: 0x%x\n", display_height);
     fprintf(stderr, "screen width: 0x%x\n", win_width);
     fprintf(stderr, "screen height: 0x%x\n", win_height);
     fprintf(stderr, "pixel size: 0x%x\n", pixel_size);
+    fprintf(stderr, "available memory: 0x%x\n", mem_size);
+    fprintf(stderr, "available stack space: 0x%x\n", stack_size);
+    fprintf(stderr, "instruction delay: 0x%x\n", instr_delay);
     fprintf(stderr, "# of registers: 0x%x\n", num_registers);
     fprintf(stderr, "# of keys recognized: 0x%x\n", num_keys);
-    fprintf(stderr, "available memory: 0x%x\n", mem_size);
 }
 
 void Chip8::dump_all(void) const
 {
+    dump_display();
     dump_mem();
     dump_stack();
     dump_regs();
@@ -873,6 +919,21 @@ bool Chip8::is_key_pressed(uint8_t key) const
     return keyboard[key];
 }
 
+bool Chip8::any_key_pressed(void) const
+{
+    for (int i = 0; i < num_keys; i++)
+        if (keyboard[i]) return true;
+    return false;
+}
+
+// Always check if a key was pressed, first!
+uint8_t Chip8::first_key_pressed(void) const
+{
+    for (int i = 0; i < num_keys; i++)
+        if (keyboard[i]) return i;
+    error("first_key_pressed(): no key was pressed");
+}
+
 /* BUG: Unfortunately, this doesn't really work with DWM. Maybe test under
  * another WM or DE?
  */
@@ -885,6 +946,19 @@ void Chip8::toggle_visibility(void)
         win_is_visible = true;
         SDL_RaiseWindow(window);
     }
+}
+
+void Chip8::incr_clock_speed(void)
+{
+    instr_delay = instr_delay == 0 ? 0 : instr_delay-1;
+    fprintf(stderr, "instr_delay=%d\n", instr_delay);
+}
+
+// Increased delay means decreased clock speed.
+void Chip8::decr_clock_speed(void)
+{
+    instr_delay = instr_delay == max_instr_delay ? instr_delay : instr_delay+1;
+    fprintf(stderr, "instr_delay=%d\n", instr_delay);
 }
 
 [[noreturn]] void usage(void)
@@ -923,30 +997,32 @@ int main(int argc, char** argv)
     progname = *argv;
     if (argc != 2) usage();
 
-    Chip8 comp;
+    Chip8 comp(false);
     comp.load_program_to_mem(*(argv+1));
 
-    bool quit = false;
+    bool quit  = false;
     while (!quit) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_KEYDOWN:
                 switch (event.key.keysym.scancode) {
-                case SDL_SCANCODE_D: comp.dump_all();              break;
-                case SDL_SCANCODE_W: comp.toggle_visibility();     break;
                 case SDL_SCANCODE_R: comp.enter_run_state();       break;
+                case SDL_SCANCODE_W: comp.toggle_visibility();     break;
                 case SDL_SCANCODE_N: comp.run_single_instr(false); break;
-                case SDL_SCANCODE_Q: quit = true; break;
-                case SDL_SCANCODE_H: comp.halt(); break;
-                default:         /* do nothing */ break;
+                case SDL_SCANCODE_Q: quit = true;     break;
+                case SDL_SCANCODE_H: comp.halt();     break;
+                case SDL_SCANCODE_I: comp.dump_all(); break;
+                case SDL_SCANCODE_UP:   comp.incr_clock_speed(); break;
+                case SDL_SCANCODE_DOWN: comp.decr_clock_speed(); break;
+                default:                        /* do nothing */ break;
                 }
                 break;
             case SDL_QUIT: quit = true; break;
             default:   /* do nothing */ break;
             }
         }
-        comp.run_single_instr(); // delays the next iteration appropriately
+        comp.run_single_instr(true);
     }
 
     return 0;

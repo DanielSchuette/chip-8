@@ -12,9 +12,10 @@ BIN	Makefile	/^BIN       = chip8$/;"	m
 BIN_FLAGS	Makefile	/^BIN_FLAGS = assets\/test_opcode.ch8$/;"	m
 CC	Makefile	/^CC 		   = gcc$/;"	m
 CCFLAGS	Makefile	/^CCFLAGS    = -Wall -Werror -Wpedantic -Wextra -Wwrite-strings -Warray-bounds \\$/;"	m
-Chip8	main.cc	/^Chip8::Chip8(void)$/;"	f	class:Chip8
+Chip8	main.cc	/^Chip8::Chip8(bool initially_halted) : halted(initially_halted)$/;"	f	class:Chip8
 Chip8	main.cc	/^class Chip8 {$/;"	c	file:
 DEPS	Makefile	/^DEPS 	  = $(SRCS:.cc=.d)$/;"	m
+NOT_IMPLEMENTED	main.cc	/^#define NOT_IMPLEMENTED(/;"	d	file:
 OBJS	Makefile	/^OBJS      = $(SRCS:.cc=.o)$/;"	m
 SRCS	Makefile	/^SRCS      = main.cc$/;"	m
 _DEBUG	main.cc	/^#define _DEBUG /;"	d	file:
@@ -25,14 +26,16 @@ add	main.cc	/^void Chip8::add(uint8_t reg, uint8_t val)$/;"	f	class:Chip8	typere
 add_reg	main.cc	/^void Chip8::add_reg(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
 all	Makefile	/^all: $(BIN)$/;"	t
 and_reg	main.cc	/^void Chip8::and_reg(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
+any_key_pressed	main.cc	/^bool Chip8::any_key_pressed(void) const$/;"	f	class:Chip8	typeref:typename:bool
 beep_sound	main.cc	/^    Mix_Chunk*    beep_sound     = nullptr;$/;"	m	class:Chip8	typeref:typename:Mix_Chunk *	file:
 call	main.cc	/^void Chip8::call(uint16_t addr)$/;"	f	class:Chip8	typeref:typename:void
 clean	Makefile	/^clean:$/;"	t
 cls	main.cc	/^void Chip8::cls(uint8_t pixel)$/;"	f	class:Chip8	typeref:typename:void
 copy_byte_to_display	main.cc	/^uint8_t Chip8::copy_byte_to_display(uint8_t x, uint8_t y, uint8_t byte)$/;"	f	class:Chip8	typeref:typename:uint8_t
+decr_clock_speed	main.cc	/^void Chip8::decr_clock_speed(void)$/;"	f	class:Chip8	typeref:typename:void
 delay_timer_reg	main.cc	/^    uint8_t delay_timer_reg = 0;$/;"	m	class:Chip8	typeref:typename:uint8_t	file:
-display_height	main.cc	/^    static constexpr uint16_t display_height = 0x20; \/\/ or 0x40 pixels$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
-display_width	main.cc	/^    static constexpr uint16_t display_width  = 0x40; \/\/ or 0x80 pixels$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
+display_height	main.cc	/^    static constexpr uint16_t display_height     = 0x20; \/\/ or 0x40 pixels$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
+display_width	main.cc	/^    static constexpr uint16_t display_width      = 0x40; \/\/ or 0x80 pixels$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
 drw	main.cc	/^void Chip8::drw(uint8_t reg1, uint8_t reg2, uint8_t n)$/;"	f	class:Chip8	typeref:typename:void
 dump_all	main.cc	/^void Chip8::dump_all(void) const$/;"	f	class:Chip8	typeref:typename:void
 dump_display	main.cc	/^void Chip8::dump_display(void) const$/;"	f	class:Chip8	typeref:typename:void
@@ -41,21 +44,26 @@ dump_mem	main.cc	/^void Chip8::dump_mem(void) const$/;"	f	class:Chip8	typeref:ty
 dump_properties	main.cc	/^void Chip8::dump_properties(void) const$/;"	f	class:Chip8	typeref:typename:void
 dump_regs	main.cc	/^void Chip8::dump_regs(void) const$/;"	f	class:Chip8	typeref:typename:void
 dump_stack	main.cc	/^void Chip8::dump_stack(void) const$/;"	f	class:Chip8	typeref:typename:void
-enter_run_state	main.cc	/^    void enter_run_state(void) { warn("resume running"); halted = false; }$/;"	f	class:Chip8	typeref:typename:void	file:
+enter_run_state	main.cc	/^    void enter_run_state(void)  { warn("resume running"); halted = false; }$/;"	f	class:Chip8	typeref:typename:void	file:
 error	main.cc	/^[[noreturn]] void error(const char* fmt, ...)$/;"	f	typeref:typename:void
+first_key_pressed	main.cc	/^uint8_t Chip8::first_key_pressed(void) const$/;"	f	class:Chip8	typeref:typename:uint8_t
 get_delay_timer	main.cc	/^    uint8_t get_delay_timer(void) const { return delay_timer_reg; }$/;"	f	class:Chip8	typeref:typename:uint8_t	file:
 get_sound_timer	main.cc	/^    uint8_t get_sound_timer(void) const { return sound_timer_reg; }$/;"	f	class:Chip8	typeref:typename:uint8_t	file:
-halt	main.cc	/^    void halt(void)            { warn("halting the machine"); halted = true; }$/;"	f	class:Chip8	typeref:typename:void	file:
-halted	main.cc	/^    bool halted = true;$/;"	m	class:Chip8	typeref:typename:bool	file:
+halt	main.cc	/^    void halt(void)             { warn("halting the machine"); halted = true; }$/;"	f	class:Chip8	typeref:typename:void	file:
+halted	main.cc	/^    bool           halted;$/;"	m	class:Chip8	typeref:typename:bool	file:
 i0	main.cc	/^                    i0, i1; \/\/ `I' is actually a 16-bit register$/;"	m	struct:Chip8::__anonb4390ffe010a::__anonb4390ffe0208	typeref:typename:uint8_t	file:
 i1	main.cc	/^                    i0, i1; \/\/ `I' is actually a 16-bit register$/;"	m	struct:Chip8::__anonb4390ffe010a::__anonb4390ffe0208	typeref:typename:uint8_t	file:
-is_halted	main.cc	/^    bool is_halted(void) const { return halted; }$/;"	f	class:Chip8	typeref:typename:bool	file:
+incr_clock_speed	main.cc	/^void Chip8::incr_clock_speed(void)$/;"	f	class:Chip8	typeref:typename:void
+instr_delay	main.cc	/^    uint32_t       instr_delay     = 2; \/\/ ms delay after every instruction$/;"	m	class:Chip8	typeref:typename:uint32_t	file:
+is_halted	main.cc	/^    bool is_halted(void) const  { return halted; }$/;"	f	class:Chip8	typeref:typename:bool	file:
 is_key_pressed	main.cc	/^bool Chip8::is_key_pressed(uint8_t key) const$/;"	f	class:Chip8	typeref:typename:bool
 jmp	main.cc	/^void Chip8::jmp(uint16_t addr)$/;"	f	class:Chip8	typeref:typename:void
 jmp_v0	main.cc	/^void Chip8::jmp_v0(uint16_t addr)$/;"	f	class:Chip8	typeref:typename:void
 ld	main.cc	/^void Chip8::ld(uint8_t reg, uint8_t val)$/;"	f	class:Chip8	typeref:typename:void
 ld_dt	main.cc	/^void Chip8::ld_dt(uint8_t reg)$/;"	f	class:Chip8	typeref:typename:void
+ld_recv_key	main.cc	/^void Chip8::ld_recv_key(void)$/;"	f	class:Chip8	typeref:typename:void
 ld_reg	main.cc	/^void Chip8::ld_reg(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
+ld_wait_key	main.cc	/^void Chip8::ld_wait_key(uint8_t reg)$/;"	f	class:Chip8	typeref:typename:void
 leaks	Makefile	/^leaks: $(BIN)$/;"	t
 load_from_mem	main.cc	/^int16_t Chip8::load_from_mem(uint16_t addr) const$/;"	f	class:Chip8	typeref:typename:int16_t
 load_from_mem_savely	main.cc	/^uint8_t Chip8::load_from_mem_savely(uint16_t addr) const$/;"	f	class:Chip8	typeref:typename:uint8_t
@@ -65,8 +73,9 @@ load_from_reg_savely	main.cc	/^uint8_t Chip8::load_from_reg_savely(uint8_t reg) 
 load_program_to_mem	main.cc	/^void Chip8::load_program_to_mem(const char* path)$/;"	f	class:Chip8	typeref:typename:void
 main	main.cc	/^int main(int argc, char** argv)$/;"	f	typeref:typename:int
 main	tools/write_binary_data.cc	/^int main(int argc, char** argv)$/;"	f	typeref:typename:int
-mem_size	main.cc	/^    static constexpr uint16_t mem_size       = 0x1000;$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
-ms_per_frame	main.cc	/^static constexpr uint32_t ms_per_frame = 1000 \/ target_fps;$/;"	v	typeref:typename:uint32_t	file:
+max_instr_delay	main.cc	/^    const uint32_t max_instr_delay = 500;$/;"	m	class:Chip8	typeref:typename:const uint32_t	file:
+mem_size	main.cc	/^    static constexpr uint16_t mem_size           = 0x1000;$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
+num_display_pixels	main.cc	/^    static constexpr uint16_t num_display_pixels = display_width *$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
 num_keys	main.cc	/^    static constexpr uint8_t num_keys = 0x10;$/;"	m	class:Chip8	typeref:typename:uint8_t	file:
 num_registers	main.cc	/^    static constexpr uint8_t num_registers = 0x12;$/;"	m	class:Chip8	typeref:typename:uint8_t	file:
 or_reg	main.cc	/^void Chip8::or_reg(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
@@ -77,7 +86,7 @@ pr_bits	main.cc	/^void pr_bits(T word)$/;"	f	typeref:typename:void
 prev_pc	main.cc	/^    uint16_t prev_pc = pc;    \/\/ save last pc, e.g. to check for infinite loops$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
 print_mem_range	main.cc	/^void Chip8::print_mem_range(uint16_t from, uint16_t to, uint8_t col_size) const$/;"	f	class:Chip8	typeref:typename:void
 progname	main.cc	/^static const char*                progname;$/;"	v	typeref:typename:const char *	file:
-program_start	main.cc	/^    static constexpr uint16_t program_start  = 0x200;$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
+program_start	main.cc	/^    static constexpr uint16_t program_start      = 0x200;$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
 push_stack	main.cc	/^void Chip8::push_stack(uint16_t value)$/;"	f	class:Chip8	typeref:typename:void
 registers	main.cc	/^        } registers;$/;"	m	union:Chip8::__anonb4390ffe010a	typeref:struct:Chip8::__anonb4390ffe010a::__anonb4390ffe0208	file:
 renderer	main.cc	/^    SDL_Renderer* renderer       = nullptr;$/;"	m	class:Chip8	typeref:typename:SDL_Renderer *	file:
@@ -97,9 +106,10 @@ skip_press_eq	main.cc	/^void Chip8::skip_press_eq(uint8_t reg)$/;"	f	class:Chip8
 skip_press_neq	main.cc	/^void Chip8::skip_press_neq(uint8_t reg)$/;"	f	class:Chip8	typeref:typename:void
 skip_regs_eq	main.cc	/^void Chip8::skip_regs_eq(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
 skip_regs_neq	main.cc	/^void Chip8::skip_regs_neq(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
-sound_timer_reg	main.cc	/^    uint8_t sound_timer_reg = 0; \/\/ machine plays a sound if non-zero$/;"	m	class:Chip8	typeref:typename:uint8_t	file:
+sound_hz	main.cc	/^static constexpr uint8_t sound_hz      = 60;$/;"	v	typeref:typename:uint8_t	file:
+sound_timer_reg	main.cc	/^    uint8_t sound_timer_reg = 0;  \/\/ machine plays a sound if non-zero$/;"	m	class:Chip8	typeref:typename:uint8_t	file:
 sp	main.cc	/^    uint8_t  sp      = 0;     \/\/ stack pointer, points at next empty spot$/;"	m	class:Chip8	typeref:typename:uint8_t	file:
-stack_size	main.cc	/^    static constexpr uint16_t stack_size     = 0x10;$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
+stack_size	main.cc	/^    static constexpr uint16_t stack_size         = 0x10;$/;"	m	class:Chip8	typeref:typename:uint16_t	file:
 store_to_mem	main.cc	/^int16_t Chip8::store_to_mem(uint16_t addr, uint8_t value)$/;"	f	class:Chip8	typeref:typename:int16_t
 store_to_reg	main.cc	/^int16_t Chip8::store_to_reg(uint8_t reg, uint8_t value)$/;"	f	class:Chip8	typeref:typename:int16_t
 store_to_reg_i	main.cc	/^void Chip8::store_to_reg_i(uint16_t value)$/;"	f	class:Chip8	typeref:typename:void
@@ -107,8 +117,8 @@ store_to_reg_savely	main.cc	/^void Chip8::store_to_reg_savely(uint8_t reg, uint8
 sub	main.cc	/^void Chip8::sub(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
 subn	main.cc	/^void Chip8::subn(uint8_t reg1, uint8_t reg2)$/;"	f	class:Chip8	typeref:typename:void
 swap_display	main.cc	/^void Chip8::swap_display(void)$/;"	f	class:Chip8	typeref:typename:void
-target_fps	main.cc	/^static constexpr uint32_t target_fps   = 60; \/\/ Chip-8 runs at 60 FPS$/;"	v	typeref:typename:uint32_t	file:
 test	Makefile	/^test: $(BIN)$/;"	t
+timer_frequency	main.cc	/^    uint8_t timer_frequency = 60; \/\/ in Hz$/;"	m	class:Chip8	typeref:typename:uint8_t	file:
 title	main.cc	/^    const char*   title          = "Chip-8";$/;"	m	class:Chip8	typeref:typename:const char *	file:
 toggle_visibility	main.cc	/^void Chip8::toggle_visibility(void)$/;"	f	class:Chip8	typeref:typename:void
 unknown_instr_error	main.cc	/^[[noreturn]] void Chip8::unknown_instr_error(uint16_t instr)$/;"	f	class:Chip8	typeref:typename:void
@@ -132,6 +142,7 @@ vc	main.cc	/^                    v8, v9, va, vb, vc, vd, ve, vf,$/;"	m	struct:Ch
 vd	main.cc	/^                    v8, v9, va, vb, vc, vd, ve, vf,$/;"	m	struct:Chip8::__anonb4390ffe010a::__anonb4390ffe0208	typeref:typename:uint8_t	file:
 ve	main.cc	/^                    v8, v9, va, vb, vc, vd, ve, vf,$/;"	m	struct:Chip8::__anonb4390ffe010a::__anonb4390ffe0208	typeref:typename:uint8_t	file:
 vf	main.cc	/^                    v8, v9, va, vb, vc, vd, ve, vf,$/;"	m	struct:Chip8::__anonb4390ffe010a::__anonb4390ffe0208	typeref:typename:uint8_t	file:
+waiting_for_key	main.cc	/^    int8_t         waiting_for_key = -1;$/;"	m	class:Chip8	typeref:typename:int8_t	file:
 warn	main.cc	/^void warn(const char* fmt, ...)$/;"	f	typeref:typename:void
 win_height	main.cc	/^    uint32_t      win_height     = display_height * pixel_size;$/;"	m	class:Chip8	typeref:typename:uint32_t	file:
 win_is_visible	main.cc	/^    bool          win_is_visible = true;$/;"	m	class:Chip8	typeref:typename:bool	file:
