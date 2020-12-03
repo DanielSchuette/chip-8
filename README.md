@@ -12,10 +12,12 @@ make test
 # Keys
 Chip-8 accepts input from keys `0 - 9, a, b, c, d, e, f`. A few other keys instruct the interpreter to do things that aren't part of Chip-8 but are useful:
 
-`h/r`     -> halt/resume the emulator
-`n`       -> when halted, run the next instruction only
-`i`       -> display machine state information
-`up/down` -> increase/decrease CPU clock speed
+| Key       | Action                                     |
+| --------- | ------------------------------------------ |
+| `h/r`     | halt/resume the emulator                   |
+| `n`       | when halted, run the next instruction only |
+| `i`       | display machine state information          |
+| `up/down` | increase/decrease CPU clock speed          |
 
 # License
 All code except for the test ROM (see above) is licensed under an [MIT license](./LICENSE.md).
