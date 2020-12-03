@@ -46,7 +46,7 @@ void pr_bits(T word)
 
 class Chip8 {
     static constexpr uint16_t mem_size           = 0x1000;
-    static constexpr uint16_t stack_size         = 0x10;
+    static constexpr uint16_t stack_size         = 0x40;
     static constexpr uint16_t program_start      = 0x200;
     static constexpr uint16_t display_width      = 0x40; // or 0x80 pixels
     static constexpr uint16_t display_height     = 0x20; // or 0x40 pixels
@@ -96,7 +96,14 @@ class Chip8 {
      * In addition, Chip-8 has a stack of 16 16-bit values which allows for 12
      * levels of nested subroutines.
      */
-    uint8_t  memory[mem_size]  = {
+    uint8_t  memory[mem_size]  = {};
+    uint16_t stack[stack_size] = {};
+
+    static constexpr uint16_t builtin_font_stride    = 0x5;
+    static constexpr uint16_t builtin_fontset_size   = 0x10*builtin_font_stride;
+    static constexpr uint16_t builtin_font_mem_start = 0x0;
+    static constexpr uint16_t builtin_font_mem_end   = 0x1ff;
+    const uint8_t builtin_fontset[builtin_fontset_size] = {
         0xF0, 0x90, 0x90, 0x90, 0xF0, // 8x5 sprite for `0'
         0x20, 0x60, 0x20, 0x20, 0x70, // 8x5 sprite for `1'
         0xF0, 0x10, 0xF0, 0x80, 0xF0, // 8x5 sprite for `2'
@@ -112,10 +119,9 @@ class Chip8 {
         0xF0, 0x80, 0x80, 0x80, 0xF0, // 8x5 sprite for `c'
         0xE0, 0x90, 0x90, 0x90, 0xE0, // 8x5 sprite for `d'
         0xF0, 0x80, 0xF0, 0x80, 0xF0, // 8x5 sprite for `e'
-        0xF0, 0x80, 0xF0, 0x80, 0x80  // 8x5 sprite for `f'
+        0xF0, 0x80, 0xF0, 0x80, 0x80, // 8x5 sprite for `f'
         // ... everything else is initialized to 0
     };
-    uint16_t stack[stack_size] = {};
 
     /* While the original Chip-8 had a 64x32-pixel monochrome display, it seems
      * like most implementations support a 128x64-pixel mode. That's the one we
@@ -145,6 +151,7 @@ class Chip8 {
     bool          win_is_visible = true;
 
     int16_t  store_to_mem(uint16_t, uint8_t);
+    void     store_to_mem_savely(uint16_t, uint8_t);
     int16_t  load_from_mem(uint16_t) const;
     uint8_t  load_from_mem_savely(uint16_t) const;
     int16_t  store_to_reg(uint8_t, uint8_t);
@@ -179,10 +186,17 @@ class Chip8 {
     void skip_press_neq(uint8_t);
     void ld(uint8_t, uint8_t);
     void ld_reg(uint8_t, uint8_t);
-    void ld_dt(uint8_t);
+    void ld_from_dt(uint8_t);
+    void ld_to_dt(uint8_t);
+    void ld_to_st(uint8_t);
     void ld_wait_key(uint8_t);
     void ld_recv_key(void);
+    void ld_sprite(uint8_t);
+    void ld_bcd(uint8_t);
+    void ld_regs(uint8_t);
+    void save_regs(uint8_t);
     void add(uint8_t, uint8_t);
+    void add_i(uint8_t);
     void or_reg(uint8_t, uint8_t);
     void and_reg(uint8_t, uint8_t);
     void xor_reg(uint8_t, uint8_t);
@@ -281,7 +295,7 @@ Chip8::Chip8(bool initially_halted) : halted(initially_halted)
         error(Mix_GetError());
 
     beep_sound = Mix_LoadWAV("assets/beep.wav");
-    if (!beep_sound) error(Mix_GetError());
+    if (!beep_sound) warn(Mix_GetError());
 }
 
 Chip8::~Chip8(void)
@@ -381,15 +395,15 @@ void Chip8::run_single_instr(bool skip_if_halted)
         break;
     case 0xf:
         switch (lower_byte) {
-        case 0x07: ld_dt(reg);       break;
+        case 0x07: ld_from_dt(reg);  break;
         case 0x0a: ld_wait_key(reg); break;
-        case 0x15: NOT_IMPLEMENTED("instr not implemented"); break;
-        case 0x18: NOT_IMPLEMENTED("instr not implemented"); break;
-        case 0x1e: NOT_IMPLEMENTED("instr not implemented"); break;
-        case 0x29: NOT_IMPLEMENTED("instr not implemented"); break;
-        case 0x33: NOT_IMPLEMENTED("instr not implemented"); break;
-        case 0x55: NOT_IMPLEMENTED("instr not implemented"); break;
-        case 0x65: NOT_IMPLEMENTED("instr not implemented"); break;
+        case 0x15: ld_to_dt(reg);    break;
+        case 0x18: ld_to_st(reg);    break;
+        case 0x1e: add_i(reg);       break;
+        case 0x29: ld_sprite(reg);   break;
+        case 0x33: ld_bcd(reg);      break;
+        case 0x55: save_regs(reg);   break;
+        case 0x65: ld_regs(reg);     break;
         default:   unknown_instr_error(instr);
         }
         break;
@@ -427,6 +441,15 @@ void Chip8::load_program_to_mem(const char* path)
     }
 
     src_code.close();
+
+    // load builtin font multiple times throughout the entire reserved mem
+    mem_ptr = builtin_font_mem_start;
+    uint16_t byte = 0;
+    while (mem_ptr <= builtin_font_mem_end) {
+        if (store_to_mem(mem_ptr++, builtin_fontset[byte]) == -1)
+            error("cannot store font data at 0x%x", mem_ptr-1);
+        byte = (byte+1) % builtin_fontset_size;
+    }
 }
 
 // IMPROVE: Play music instead of a music chunk, pause if necessary.
@@ -570,9 +593,21 @@ void Chip8::ld_reg(uint8_t reg1, uint8_t reg2)
     store_to_reg_savely(reg1, val);
 }
 
-void Chip8::ld_dt(uint8_t reg)
+void Chip8::ld_from_dt(uint8_t reg)
 {
     store_to_reg_savely(reg, get_delay_timer());
+}
+
+void Chip8::ld_to_dt(uint8_t reg)
+{
+    uint8_t val = load_from_reg_savely(reg);
+    set_delay_timer(val);
+}
+
+void Chip8::ld_to_st(uint8_t reg)
+{
+    uint8_t val = load_from_reg_savely(reg);
+    set_sound_timer(val);
 }
 
 /* This instruction is a bit more complicated, we need to functions for it.
@@ -596,11 +631,50 @@ void Chip8::ld_recv_key(void)
     waiting_for_key = -1;
 }
 
+void Chip8::ld_sprite(uint8_t reg)
+{
+    uint8_t  val        = load_from_reg_savely(reg);
+    uint16_t sprite_pos = val * builtin_font_stride;
+    store_to_reg_i(load_from_mem_savely(sprite_pos));
+}
+
+void Chip8::ld_bcd(uint8_t reg)
+{
+    uint16_t start_addr = load_from_reg_i();
+    uint8_t  val        = load_from_reg_savely(reg);
+    store_to_mem_savely(start_addr, val / 100);
+    store_to_mem_savely(start_addr+1, (val % 100) / 10);
+    store_to_mem_savely(start_addr+2, val % 10);
+}
+
+void Chip8::ld_regs(uint8_t reg)
+{
+    uint16_t start_addr = load_from_reg_i();
+    for (int r = 0; r <= reg; r++) {
+        uint8_t val = load_from_mem_savely(start_addr++);
+        store_to_reg_savely(r, val);
+    }
+}
+
+void Chip8::save_regs(uint8_t reg)
+{
+    uint16_t start_addr = load_from_reg_i();
+    for (int r = 0; r <= reg; r++)
+        store_to_mem_savely(start_addr++, load_from_reg_savely(r));
+}
+
 void Chip8::add(uint8_t reg, uint8_t val)
 {
     // we practically implement a load store architecture
     uint8_t temp = load_from_reg_savely(reg);
     store_to_reg_savely(reg, temp + val);
+}
+
+void Chip8::add_i(uint8_t reg)
+{
+    uint8_t val_a = load_from_reg_i();
+    uint8_t val_b = load_from_reg_savely(reg);
+    store_to_reg_i(val_a + val_b);
 }
 
 void Chip8::or_reg(uint8_t reg1, uint8_t reg2)
@@ -739,28 +813,34 @@ void Chip8::sc_exit(void)
 // Returns -1 if memory access is somehow invalid.
 int16_t Chip8::load_from_mem(uint16_t addr) const
 {
-    if (addr < program_start || addr >= mem_size)
-        return -1;
-    return static_cast<int16_t>(memory[addr]);
+    if ((addr >= builtin_font_mem_start && addr <= builtin_font_mem_end) ||
+        addr >= program_start)
+        return static_cast<int16_t>(memory[addr]);
+    return -1;
 }
 
 uint8_t Chip8::load_from_mem_savely(uint16_t addr) const
 {
     int16_t val = load_from_mem(addr);
-    if (val < 0) {
-        fprintf(stderr, "invalid memory access\n");
-        exit(1);
-    }
+    if (val < 0) error("invalid reading memory access at 0x%04x", addr);
     return static_cast<uint8_t>(val);
 }
 
 // Returns -1 if memory access is somehow invalid.
 int16_t Chip8::store_to_mem(uint16_t addr, uint8_t value)
 {
-    if (addr < program_start || addr >= mem_size)
-        return -1;
-    memory[addr] = value;
-    return 0;
+    if ((addr >= builtin_font_mem_start && addr <= builtin_font_mem_end) ||
+        addr >= program_start) {
+        memory[addr] = value;
+        return 0;
+    }
+    return -1;
+}
+
+void Chip8::store_to_mem_savely(uint16_t addr, uint8_t value)
+{
+    int16_t result = store_to_mem(addr, value);
+    if (result < 0) error("invalid writing memory access at 0x%04x", addr);
 }
 
 // Returns -1 if register access is somehow invalid.
@@ -774,10 +854,8 @@ int16_t Chip8::store_to_reg(uint8_t reg, uint8_t value)
 
 void Chip8::store_to_reg_savely(uint8_t reg, uint8_t value)
 {
-    if (store_to_reg(reg, value) < 0) {
-        fprintf(stderr, "invalid register access\n");
-        exit(1);
-    }
+    if (store_to_reg(reg, value) < 0)
+        error("invalid writing register access");
 }
 
 // Returns -1 if register access is somehow invalid.
@@ -792,7 +870,7 @@ int16_t Chip8::load_from_reg(uint8_t reg) const
 uint8_t Chip8::load_from_reg_savely(uint8_t reg) const
 {
     int16_t value = load_from_reg(reg);
-    if (value < 0) error("invalid register access");
+    if (value < 0) error("invalid reading register access");
     return static_cast<uint8_t>(value);
 }
 

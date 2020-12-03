@@ -12,7 +12,7 @@ ifeq ($(DEBUG_INFO), yes)
 endif
 
 BIN       = chip8
-BIN_FLAGS = assets/test_opcode.ch8
+BIN_FLAGS = test_opcode.ch8
 SRCS      = main.cc
 OBJS      = $(SRCS:.cc=.o)
 DEPS 	  = $(SRCS:.cc=.d)
