@@ -24,7 +24,7 @@ static const char*                progname;
 static std::random_device         rnd_dev;
 static std::default_random_engine rnd_gen(rnd_dev());
 
-static constexpr uint8_t sound_hz      = 60;
+static constexpr uint8_t sound_hz = 60;
 
 void warn(const char*, ...);
 [[noreturn]] void error(const char*, ...);
@@ -610,7 +610,7 @@ void Chip8::ld_to_st(uint8_t reg)
     set_sound_timer(val);
 }
 
-/* This instruction is a bit more complicated, we need to functions for it.
+/* This instruction is a bit more complicated, we need two functions for it.
  * First, we save the register into which we have to load the key that was
  * pressed. Then, we check if we're waiting on every keyboard update. If we
  * are indeed waiting _and_ a key was pressed, we call `ld_recv_key()', save
@@ -626,7 +626,10 @@ void Chip8::ld_recv_key(void)
 {
     uint8_t reg = static_cast<uint8_t>(waiting_for_key);
     uint8_t key = first_key_pressed();
+
+#if defined(_DEBUG) && _DEBUG == 1
     fprintf(stderr, "reg=%d key=%d\n", reg, key);
+#endif
     store_to_reg_savely(reg, key);
     waiting_for_key = -1;
 }
@@ -951,17 +954,20 @@ void Chip8::dump_keyboard(void) const
 
 void Chip8::dump_properties(void) const
 {
-    fprintf(stderr, "VM Properties:\n");
-    fprintf(stderr, "display width: 0x%x\n", display_width);
-    fprintf(stderr, "display height: 0x%x\n", display_height);
-    fprintf(stderr, "screen width: 0x%x\n", win_width);
-    fprintf(stderr, "screen height: 0x%x\n", win_height);
-    fprintf(stderr, "pixel size: 0x%x\n", pixel_size);
-    fprintf(stderr, "available memory: 0x%x\n", mem_size);
-    fprintf(stderr, "available stack space: 0x%x\n", stack_size);
-    fprintf(stderr, "instruction delay: 0x%x\n", instr_delay);
-    fprintf(stderr, "# of registers: 0x%x\n", num_registers);
-    fprintf(stderr, "# of keys recognized: 0x%x\n", num_keys);
+    fprintf(stderr,
+            "VM Properties:\n"
+            "display width: 0x%x\n"
+            "display height: 0x%x\n"
+            "screen width: 0x%x\n"
+            "screen height: 0x%x\n"
+            "pixel size: 0x%x\n"
+            "available memory: 0x%x\n"
+            "available stack space: 0x%x\n"
+            "instruction delay: 0x%x\n"
+            "# of registers: 0x%x\n"
+            "# of keys recognized: 0x%x\n",
+            display_width, display_height, win_width, win_height, pixel_size,
+            mem_size, stack_size, instr_delay, num_registers, num_keys);
 }
 
 void Chip8::dump_all(void) const
